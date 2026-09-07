@@ -48,10 +48,7 @@ export const useAgentService = () => {
           setChatHistory((prev) => {
             const lastMessage = prev[prev.length - 1]
             if (lastMessage?.role === "agent") {
-              return [
-                ...prev.slice(0, -1),
-                { ...lastMessage, text: nextReply },
-              ]
+              return [...prev.slice(0, -1), { ...lastMessage, text: nextReply }]
             }
             return [...prev, { role: "agent", text: nextReply }]
           })

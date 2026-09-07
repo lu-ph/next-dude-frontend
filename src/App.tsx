@@ -313,9 +313,15 @@ export default function AIChatInterface() {
   return (
     <div className="h-full overflow-hidden bg-[#09090B] text-neutral-200 font-sans selection:bg-white/20 flex flex-col">
       <header className="h-16 flex items-center px-6 border-b border-white/5 shrink-0 z-10">
-        <h1 className="text-xl font-semibold tracking-tight text-white font-serif">
-          ?
-        </h1>
+        <h1 className="text-xl font-semibold tracking-tight text-white font-serif"></h1>
+        <a
+          href="/introduction"
+          target="_blank"
+          rel="noreferrer"
+          className="ml-auto text-sm text-neutral-500 transition-colors hover:text-white"
+        >
+          这个网页做什么？
+        </a>
       </header>
 
       <main className="min-h-0 flex-1 relative overflow-hidden flex flex-col">
@@ -345,9 +351,7 @@ export default function AIChatInterface() {
                   <h2 className="text-2xl text-white font-medium mb-3 tracking-tight">
                     上传你需要探讨的文档
                   </h2>
-                  <p className="text-neutral-500">
-                    支持 1 个 PDF / 多张图片 (最大 {MAX_FILE_SIZE_KB}KB)
-                  </p>
+                  <p className="text-neutral-500">支持 1 个 PDF / 多张图片</p>
                 </div>
               </div>
             ) : (

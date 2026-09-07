@@ -6,6 +6,7 @@ import { useWebSocket } from "../context/WebSocketContext"
 export interface PDFViewerInstance {
   loadFromBase64: (buffer: string) => void
   scrollToPage: (pageNum: number) => Promise<void>
+  jumpToPage: (pageNum: number) => Promise<void>
   nextPage: () => Promise<void>
   previousPage: () => Promise<void>
   getCurrentPage: () => number
@@ -21,7 +22,7 @@ export const usePDFService = (pdfViewer: PDFViewerInstance | null) => {
 
       switch (msg.type) {
         case PDFMessageType.JUMP_TO_PAGE: {
-          await pdfViewer.scrollToPage(msg.payload.pageNum)
+          await pdfViewer.jumpToPage(msg.payload.pageNum)
           const currentView = await pdfViewer.getCurrentViewBase64()
           sendMessage({
             type: PDFMessageType.JUMP_TO_PAGE_DONE,

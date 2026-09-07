@@ -21,7 +21,10 @@ export function PDFPage({
   const pageRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [isVisible, setIsVisible] = useState(pageNumber === 1)
-  const [pageSize, setPageSize] = useState<{ width: number; height: number } | null>(null)
+  const [pageSize, setPageSize] = useState<{
+    width: number
+    height: number
+  } | null>(null)
 
   useEffect(() => {
     const pageElement = pageRef.current
@@ -104,7 +107,9 @@ export function PDFPage({
       }}
       className="w-full max-w-full shrink-0"
       style={{
-        aspectRatio: pageSize ? `${pageSize.width} / ${pageSize.height}` : "8.5 / 11",
+        aspectRatio: pageSize
+          ? `${pageSize.width} / ${pageSize.height}`
+          : "8.5 / 11",
       }}
     >
       <canvas ref={canvasRef} className="block w-full max-w-full h-auto" />

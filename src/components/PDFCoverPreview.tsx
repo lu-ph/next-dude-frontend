@@ -28,7 +28,8 @@ export function PDFCoverPreview({ file }: PDFCoverPreviewProps) {
 
         const canvas = canvasRef.current
         const context = canvas?.getContext("2d")
-        if (!canvas || !context) throw new Error("PDF cover canvas is unavailable")
+        if (!canvas || !context)
+          throw new Error("PDF cover canvas is unavailable")
 
         const viewport = page.getViewport({ scale: 1.2 })
         const outputScale = window.devicePixelRatio || 1

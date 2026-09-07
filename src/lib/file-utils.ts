@@ -10,7 +10,8 @@ export const fileToBase64 = (file: File): Promise<string> =>
 
       resolve(reader.result.split(",")[1] || reader.result)
     }
-    reader.onerror = () => reject(reader.error || new Error(`Failed to read ${file.name}`))
+    reader.onerror = () =>
+      reject(reader.error || new Error(`Failed to read ${file.name}`))
     reader.readAsDataURL(file)
   })
 
