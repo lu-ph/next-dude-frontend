@@ -149,7 +149,7 @@ export const useAgentService = () => {
       const headers: HeadersInit = input.pdf
         ? {
             "Content-Type": "application/pdf",
-            "X-Filename": input.pdf.name,
+            "X-Filename": encodeURIComponent(input.pdf.name),
           }
         : {}
       const response = await fetch(`${getHttpBaseUrl()}/createsession`, {
