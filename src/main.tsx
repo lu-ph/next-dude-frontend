@@ -11,6 +11,11 @@ if (!rootElement) {
   throw new Error("Root element was not found")
 }
 
+if (typeof window !== 'undefined' && 'scrollRestoration' in window.history) {
+  window.history.scrollRestoration = 'manual';
+}
+
+
 const page =
   window.location.pathname === "/introduction" ? <Introduction /> : <App />
 

@@ -4,27 +4,39 @@ import { FileViewer, FileViewerHandle } from "./components/FileViewer"
 import { PDFCoverPreview } from "./components/PDFCoverPreview"
 import { useAgentService } from "./hooks/use-agent-service"
 import { usePDFService } from "./hooks/use-pdf-service"
-import { fileToBase64, filesToBase64 } from "./lib/file-utils"
+import { filesToBase64 } from "./lib/file-utils"
+import { useWebSocket } from "./context/WebSocketContext"
+import { Container } from "./Container"
+import { useIOSViewportFix } from "./hooks/use-ios-viewport-fix"
 
 const MAX_FILE_SIZE_KB = 100000
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_KB * 1024
 
-export default function AIChatInterface() {
+export default function App() {
+  useIOSViewportFix()
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
   const [filePreviews, setFilePreviews] = useState<Record<string, string>>({})
   const [hasStarted, setHasStarted] = useState(false)
   const [pdfViewer, setPdfViewer] = useState<FileViewerHandle | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const pdfSessionPromiseRef = useRef<Promise<string> | null>(null)
   const {
     chatHistory,
     currentReply,
     isGenerating,
     canSendMessage,
     createSession,
+    connectSession,
+    sessionId,
     sendChatRequest,
     interruptChat,
+    error: agentError,
+    reportError,
+    clearError: clearAgentError,
   } = useAgentService()
+  const { error: websocketError, clearError: clearWebSocketError } = useWebSocket()
+  const [apiError, setApiError] = useState<string | null>(null)
   usePDFService(pdfViewer)
 
   const pdfFile = uploadedFiles.find((f) => f.type === "application/pdf")
@@ -65,6 +77,19 @@ export default function AIChatInterface() {
         }
       })
       setTimeout(() => inputRef.current?.focus(), 100)
+
+      const pdfToCreate = validFiles.find(
+        (file) => file.type === "application/pdf",
+      )
+      if (pdfToCreate) {
+        const sessionPromise = createSession({ pdf: pdfToCreate })
+        pdfSessionPromiseRef.current = sessionPromise
+        sessionPromise.catch((error) => {
+          const message = error instanceof Error ? error.message : "Session 创建失败"
+          setApiError(message)
+          reportError(message)
+        })
+      }
     }
 
     event.target.value = ""
@@ -88,21 +113,23 @@ export default function AIChatInterface() {
     setHasStarted(true)
 
     try {
+      setApiError(null)
       const imageData = await filesToBase64(imageFiles)
       if (pdfFile) {
-        createSession({
-          prompt,
-          pdf: {
-            filename: pdfFile.name,
-            data: await fileToBase64(pdfFile),
-          },
-          images: imageData,
-        })
-      } else {
-        sendChatRequest(prompt, imageData)
+        await (pdfSessionPromiseRef.current ?? createSession({ pdf: pdfFile }))
+      } else if (!sessionId) {
+        await createSession({})
       }
+      await connectSession()
+      sendChatRequest(
+        prompt || (pdfFile ? "请开始分析这个 PDF" : "你好"),
+        imageData,
+      )
     } catch (error) {
+      const message = error instanceof Error ? error.message : "文件处理失败"
       console.error("Failed to prepare uploaded files:", error)
+      setApiError(message)
+      reportError(message)
     }
   }
 
@@ -110,7 +137,10 @@ export default function AIChatInterface() {
     try {
       sendChatRequest(prompt, await filesToBase64(imageFiles))
     } catch (error) {
+      const message = error instanceof Error ? error.message : "消息发送失败"
       console.error("Failed to prepare chat images:", error)
+      setApiError(message)
+      reportError(message)
     }
   }
 
@@ -311,7 +341,30 @@ export default function AIChatInterface() {
   }
 
   return (
-    <div className="h-full overflow-hidden bg-[#09090B] text-neutral-200 font-sans selection:bg-white/20 flex flex-col">
+    <Container className="h-full overflow-hidden bg-[#09090B] text-neutral-200 font-sans selection:bg-white/20 flex flex-col">
+      {(websocketError || agentError || apiError) && (
+        <div className="fixed inset-x-0 top-4 z-50 flex justify-center px-4">
+          <div className="flex w-full max-w-2xl items-start gap-3 rounded-xl border border-rose-400/30 bg-rose-950/90 px-4 py-3 text-sm text-rose-100 shadow-2xl backdrop-blur-xl">
+            <span className="mt-0.5 shrink-0 font-bold text-rose-300">!</span>
+            <p className="min-w-0 flex-1 break-words">
+              {websocketError || agentError || apiError}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                clearWebSocketError()
+                clearAgentError()
+                setApiError(null)
+              }}
+              className="shrink-0 text-rose-200/70 transition-colors hover:text-white"
+              aria-label="关闭错误提示"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+  
       <header className="h-16 flex items-center px-6 border-b border-white/5 shrink-0 z-10">
         <h1 className="text-xl font-semibold tracking-tight text-white font-serif"></h1>
         <a
@@ -323,43 +376,38 @@ export default function AIChatInterface() {
           这个网页做什么？
         </a>
       </header>
-
+  
       <main className="min-h-0 flex-1 relative overflow-hidden flex flex-col">
         {!hasStarted && (
-          <div className="flex-1 w-full max-w-6xl mx-auto flex flex-col items-center justify-center p-6 pb-32">
-            {uploadedFiles.length === 0 ? (
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full max-w-4xl aspect-[21/9] rounded-[2rem] border-2 border-dashed border-neutral-800 bg-neutral-900/20 hover:bg-neutral-800/40 hover:border-neutral-600 transition-all duration-300 flex flex-col items-center justify-center gap-6 cursor-pointer group animate-in fade-in zoom-in-95"
-              >
-                <div className="w-20 h-20 rounded-2xl bg-neutral-800 group-hover:scale-110 transition-transform duration-300 flex items-center justify-center shadow-lg">
-                  <svg
-                    className="w-10 h-10 text-neutral-300"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={1.5}
-                      d="M12 4v16m8-8H4"
-                    />
-                  </svg>
+          <div className="flex-1 w-full max-w-6xl mx-auto flex flex-col h-full p-6 relative">
+            
+            <div className="flex-1 min-h-0 flex flex-col items-center justify-center">
+              {uploadedFiles.length === 0 ? (
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full max-w-4xl aspect-[21/9] rounded-[2rem] border-2 border-dashed border-neutral-800 bg-neutral-900/20 hover:bg-neutral-800/40 hover:border-neutral-600 transition-all duration-300 flex flex-col items-center justify-center gap-6 cursor-pointer group animate-in fade-in zoom-in-95"
+                >
+                  <div className="w-20 h-20 rounded-2xl bg-neutral-800 group-hover:scale-110 transition-transform duration-300 flex items-center justify-center shadow-lg">
+                    <svg className="w-10 h-10 text-neutral-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+                    </svg>
+                  </div>
+                  <div className="text-center">
+                    <h2 className="text-2xl text-white font-medium mb-3 tracking-tight">
+                      上传你需要探讨的文档
+                    </h2>
+                    <p className="text-neutral-500">支持 1 个 PDF / 多张图片</p>
+                  </div>
                 </div>
-                <div className="text-center">
-                  <h2 className="text-2xl text-white font-medium mb-3 tracking-tight">
-                    上传你需要探讨的文档
-                  </h2>
-                  <p className="text-neutral-500">支持 1 个 PDF / 多张图片</p>
-                </div>
-              </div>
-            ) : (
-              renderStagingArea()
-            )}
-
+              ) : (
+                renderStagingArea()
+              )}
+            </div>
+  
             <div
-              className={`absolute bottom-12 w-full max-w-3xl px-4 transition-all duration-500 ${uploadedFiles.length > 0 ? "translate-y-0 opacity-100 scale-100" : "translate-y-0"}`}
+              className={`shrink-0 w-full max-w-3xl mx-auto px-4 pb-6 mt-auto transition-all duration-500 ${
+                uploadedFiles.length > 0 ? "translate-y-0 opacity-100 scale-100" : ""
+              }`}
             >
               <div className="relative group flex items-center bg-neutral-900/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.4)] focus-within:border-neutral-500 focus-within:ring-1 focus-within:ring-neutral-500 transition-all p-2">
                 <button
@@ -367,59 +415,34 @@ export default function AIChatInterface() {
                   className="w-12 h-12 flex items-center justify-center text-neutral-400 hover:text-white hover:bg-neutral-800 rounded-xl transition-colors"
                   title="添加文件"
                 >
-                  <svg
-                    className="w-6 h-6"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={1.5}
-                      d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-                    />
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                   </svg>
                 </button>
-
+  
                 <input
                   ref={inputRef}
                   type="text"
-                  placeholder={
-                    uploadedFiles.length > 0
-                      ? "向 AI 描述你的需求..."
-                      : "输入问题，或拖拽文件到上方..."
-                  }
+                  placeholder={uploadedFiles.length > 0 ? "向 AI 描述你的需求..." : "输入问题，或拖拽文件到上方..."}
                   className="flex-1 bg-transparent h-12 px-4 focus:outline-none text-white placeholder:text-neutral-500 text-lg"
                   onKeyDown={(e) => {
-                    if (e.key === "Enter")
-                      handleStartChat(e.currentTarget.value)
+                    if (e.key === "Enter") handleStartChat(e.currentTarget.value)
                   }}
                 />
-
+  
                 <button
                   onClick={() => handleStartChat(inputRef.current?.value || "")}
                   className="w-12 h-12 bg-white text-black rounded-xl flex items-center justify-center hover:bg-neutral-200 transition-colors shrink-0"
                 >
-                  <svg
-                    className="w-5 h-5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M14 5l7 7m0 0l-7 7m7-7H3"
-                    />
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
                   </svg>
                 </button>
               </div>
             </div>
           </div>
         )}
-
+  
         <input
           type="file"
           ref={fileInputRef}
@@ -428,9 +451,9 @@ export default function AIChatInterface() {
           multiple
           onChange={handleUploadFile}
         />
-
+  
         {hasStarted && (
-          <div className="min-h-0 flex w-full h-full animate-in fade-in duration-500">
+          <div className="min-h-0 flex-1 flex w-full h-full animate-in fade-in duration-500 overscroll-contain touch-auto">
             {uploadedFiles.length > 0 && (
               <FileViewer ref={setPdfViewer} files={uploadedFiles} />
             )}
@@ -446,6 +469,6 @@ export default function AIChatInterface() {
           </div>
         )}
       </main>
-    </div>
+    </Container>
   )
 }

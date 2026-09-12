@@ -220,9 +220,9 @@ export function ChatPanel({
         {(isGenerating || currentReply) && shouldRenderCurrentReply && (
           <div className="w-full max-w-3xl text-neutral-200 text-[15px] leading-relaxed">
             {isGenerating && !currentReply && (
-              <div className="flex items-center gap-2 py-2 text-xs font-medium text-neutral-400">
-                <span className="h-2 w-2 rounded-full bg-indigo-500 animate-ping" />
-                <span>思考中...</span>
+              <div className="flex items-center gap-2 py-2 text-sm font-medium text-neutral-300 animate-pulse">
+                <span className="h-2 w-2 rounded-full bg-neutral-300 animate-pulse" />
+                <span>正在思考...</span>
               </div>
             )}
             {currentReply && (

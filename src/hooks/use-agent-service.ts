@@ -6,6 +6,14 @@ import {
 } from "../types/agent-types"
 import type { AgentInput } from "../types/agent-types"
 
+const getHttpBaseUrl = () => {
+  const configuredUrl = import.meta.env.VITE_API_URL
+  if (configuredUrl) return configuredUrl.replace(/\/$/, "")
+
+  const websocketUrl = import.meta.env.VITE_WS_URL || "ws://localhost:8080/ws"
+  return websocketUrl.replace(/^ws/, "http").replace(/\/ws\/?$/, "")
+}
+
 export type ChatMessage =
   | { role: "user" | "agent"; text: string }
   | {
@@ -18,13 +26,19 @@ export type ChatMessage =
     }
 
 export const useAgentService = () => {
-  const { sendMessage, subscribe } = useWebSocket()
+  const {
+    sendMessage,
+    subscribe,
+    setSessionId: setWebSocketSessionId,
+    connectSession,
+  } = useWebSocket()
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([])
 
   const [currentReply, setCurrentReply] = useState<string>("")
   const [isGenerating, setIsGenerating] = useState(false)
   const [canSendMessage, setCanSendMessage] = useState(true)
   const [sessionId, setSessionId] = useState<string | undefined>()
+  const [error, setError] = useState<string | null>(null)
   const currentReplyRef = useRef("")
   const sessionIdRef = useRef<string | undefined>(undefined)
   const canReceiveMessagesRef = useRef(true)
@@ -36,11 +50,13 @@ export const useAgentService = () => {
 
       switch (msg.type) {
         case AgentMessageType.SESSION_CREATED:
+          setError(null)
           sessionIdRef.current = msg.payload.sessionId
           setSessionId(msg.payload.sessionId)
           break
 
         case AgentMessageType.TEXT_DELTA:
+          setError(null)
           setIsGenerating(true)
           currentReplyRef.current += msg.payload.text
           const nextReply = currentReplyRef.current
@@ -97,6 +113,7 @@ export const useAgentService = () => {
 
         case AgentMessageType.ERROR:
           console.error("Agent Error:", msg.payload.error)
+          setError(msg.payload.error)
           setIsGenerating(false)
           break
       }
@@ -108,13 +125,15 @@ export const useAgentService = () => {
   const sendChatRequest = useCallback(
     (prompt: string, images: string[] = []) => {
       canReceiveMessagesRef.current = true
+      setError(null)
+      setIsGenerating(true)
       setCanSendMessage(true)
       setChatHistory((prev) => [...prev, { role: "user", text: prompt }])
       sendMessage({
         type: AgentMessageType.CHAT_REQUEST,
         payload: {
           prompt,
-          sessionId: sessionIdRef.current,
+          sessionId: sessionIdRef.current!,
           images,
         },
       })
@@ -123,21 +142,38 @@ export const useAgentService = () => {
   )
 
   const createSession = useCallback(
-    (input: AgentInput) => {
+    async (input: AgentInput) => {
       canReceiveMessagesRef.current = true
+      setError(null)
       setCanSendMessage(true)
-      setChatHistory((prev) => [...prev, { role: "user", text: input.prompt }])
-      sendMessage({
-        type: AgentMessageType.CREATE_SESSION,
-        id: crypto.randomUUID(),
-        payload: {
-          prompt: input.prompt,
-          pdf: input.pdf!,
-          images: input.images || [],
-        },
+      const headers: HeadersInit = input.pdf
+        ? {
+            "Content-Type": "application/pdf",
+            "X-Filename": input.pdf.name,
+          }
+        : {}
+      const response = await fetch(`${getHttpBaseUrl()}/createsession`, {
+        method: "POST",
+        headers,
+        body: input.pdf,
       })
+
+      if (!response.ok) {
+        const message = await response.text()
+        throw new Error(`Session creation failed (${response.status}): ${message}`)
+      }
+
+      const result = (await response.json()) as { sessionId?: string }
+      if (!result.sessionId) {
+        throw new Error("Session creation response did not include sessionId")
+      }
+
+      sessionIdRef.current = result.sessionId
+      setSessionId(result.sessionId)
+      setWebSocketSessionId(result.sessionId)
+      return result.sessionId
     },
-    [sendMessage],
+    [setWebSocketSessionId],
   )
 
   const interruptChat = useCallback(() => {
@@ -152,13 +188,24 @@ export const useAgentService = () => {
     })
   }, [sendMessage])
 
+  const reportError = useCallback((message: string) => {
+    setError(message)
+    setIsGenerating(false)
+  }, [])
+
+  const clearError = useCallback(() => setError(null), [])
+
   return {
     chatHistory,
     currentReply,
     isGenerating,
     canSendMessage,
     sessionId,
+    error,
+    reportError,
+    clearError,
     createSession,
+    connectSession,
     sendChatRequest,
     interruptChat,
   }
